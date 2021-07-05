@@ -4,7 +4,7 @@ from datetime import datetime
 import torch
 import torch.nn as nn
 
-from .utils import AverageMeter
+from .utils import AverageMeter, AccuracyMeter
 
 
 class ClassificationTrainer():
@@ -38,14 +38,14 @@ class ClassificationTrainer():
             self.log(f'\n{timestamp}\nLR: {lr}')
 
             t = time.time()
-            train_loss = self.training_step(train_loader)
+            train_loss = self.train_epoch(train_loader)
 
             self.log(
                 f'[RESULT]: Train. Epoch: {self.epoch}, train_loss: {train_loss:.5f}, time: {(time.time() - t):.5f}')
             self.save(self.log_base / 'last-checkpoint.pt')
 
             t = time.time()
-            val_loss, val_acc = self.validation(validation_loader)
+            val_loss, val_acc = self.validate_epoch(validation_loader)
 
             self.log(
                 f'[RESULT]: Val. Epoch: {self.epoch}, train_loss: {train_loss:.5f}, val_loss: {val_loss:.5f}, val_accuracy: {val_acc:.5f}, time: {(time.time() - t):.5f}')
@@ -64,9 +64,10 @@ class ClassificationTrainer():
 
             self.epoch += 1
 
-    def training_step(self, train_loader):
+    def train_epoch(self, train_loader):
         self.model.train()
 
+        epoch_loss = AverageMeter()
         for images, targets, image_ids in train_loader:
             images = images.to(self.device)
             targets = targets.to(self.device)
@@ -78,13 +79,15 @@ class ClassificationTrainer():
             loss.backward()
 
             self.optimizer.step()
+            epoch_loss.update(loss.detach().item())
 
-        return loss
+        return epoch_loss.avg
 
-    def validation(self, val_loader):
+    def validate_epoch(self, val_loader):
         self.model.eval()
 
-        score = AverageMeter()
+        epoch_loss = AverageMeter()
+        score = AccuracyMeter()
         for images, targets, image_ids in val_loader:
 
             with torch.no_grad():
@@ -97,9 +100,10 @@ class ClassificationTrainer():
                 _, preds = torch.max(logits, 1)
                 n_correct = (preds == targets).sum().item()
 
+                epoch_loss.update(loss.item())
                 score.update(n_correct, self.cfg.batch_size)
 
-        return loss, score.avg
+        return epoch_loss.avg, score.acc
 
     def save(self, path):
         self.model.eval()
