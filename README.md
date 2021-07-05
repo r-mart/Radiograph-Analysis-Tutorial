@@ -9,7 +9,6 @@ Project Organization
     ├── LICENSE    
     ├── README.md          <- The top-level README for developers using this project.
     ├── data
-    ├── models             <- Trained and serialized models, model predictions, or model summaries
     ├── notebooks          <- Jupyter notebooks. By convention, commit only notebooks after clearing 
     │                         all output cells
     ├── requirements.txt   <- The requirements file for reproducing the analysis environment, e.g.
@@ -17,8 +16,8 @@ Project Organization
     ├── src                <- Source code for use in this project.
     │   ├── __init__.py    <- Makes src a Python module
     │   ├── data           <- Scripts to download or generate data
-    │   ├── models         <- Scripts to train models and then use trained models to make
-    │   │                     predictions
+    │   ├── train          <- Scripts to train models
+    │   ├── models         <- Model definitions    
     │   └── visualization  <- Scripts to create exploratory and results oriented visualizations
 
 
