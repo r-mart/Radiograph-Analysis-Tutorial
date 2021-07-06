@@ -1,5 +1,6 @@
 import time
 from datetime import datetime
+from tensorboardX import SummaryWriter
 
 import torch
 import torch.nn as nn
@@ -32,23 +33,30 @@ class ClassificationTrainer():
         self.log(f'Fold num is {cfg.fold_num}')
 
     def fit(self, train_loader, validation_loader):
+        writer = SummaryWriter(self.log_base)
         for e in range(self.cfg.n_epochs):
             lr = self.optimizer.param_groups[0]['lr']
             timestamp = datetime.utcnow().isoformat()
             self.log(f'\n{timestamp}\nLR: {lr}')
 
             t = time.time()
-            train_loss = self.train_epoch(train_loader)
+            train_loss, train_acc = self.train_epoch(train_loader)
 
             self.log(
-                f'[RESULT]: Train. Epoch: {self.epoch}, train_loss: {train_loss:.5f}, time: {(time.time() - t):.5f}')
+                f'[RESULT]: Train. Epoch: {self.epoch}, train_loss: {train_loss:.5f}, train_accuracy: {train_acc:.5f}, time: {(time.time() - t):.5f}')
             self.save(self.log_base / 'last-checkpoint.pt')
 
             t = time.time()
             val_loss, val_acc = self.validate_epoch(validation_loader)
 
             self.log(
-                f'[RESULT]: Val. Epoch: {self.epoch}, train_loss: {train_loss:.5f}, val_loss: {val_loss:.5f}, val_accuracy: {val_acc:.5f}, time: {(time.time() - t):.5f}')
+                f'[RESULT]: Val. Epoch: {self.epoch}, val_loss: {val_loss:.5f}, val_accuracy: {val_acc:.5f}, time: {(time.time() - t):.5f}')
+
+            writer.add_scalar('train/learning_rate', lr, e)
+            writer.add_scalar('train/loss', train_loss, e)
+            writer.add_scalar('train/accuracy', train_acc, e)
+            writer.add_scalar('val/loss', val_loss, e)
+            writer.add_scalar('val/accuracy', val_acc, e)
 
             if val_loss < self.best_val_loss:
                 self.best_val_loss = val_loss
@@ -64,10 +72,13 @@ class ClassificationTrainer():
 
             self.epoch += 1
 
+        writer.close()
+
     def train_epoch(self, train_loader):
         self.model.train()
 
         epoch_loss = AverageMeter()
+        score = AccuracyMeter()
         for images, targets, image_ids in train_loader:
             images = images.to(self.device)
             targets = targets.to(self.device)
@@ -79,9 +90,14 @@ class ClassificationTrainer():
             loss.backward()
 
             self.optimizer.step()
-            epoch_loss.update(loss.detach().item())
 
-        return epoch_loss.avg
+            _, preds = torch.max(logits, 1)
+            n_correct = (preds == targets).sum().item()
+
+            epoch_loss.update(loss.detach().item())
+            score.update(n_correct, self.cfg.batch_size)
+
+        return epoch_loss.avg, score.acc
 
     def validate_epoch(self, val_loader):
         self.model.eval()
