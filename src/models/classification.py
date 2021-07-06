@@ -42,7 +42,7 @@ class ClassificationCustom(nn.Module):
             nn.Conv2d(64, 128, 3, padding='valid'),
             nn.ReLU()
         )
-        self.avgpool = nn.AdaptiveAvgPool2d()
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Sequential(
             nn.Linear(128, 10),
             nn.ReLU(),
@@ -52,6 +52,7 @@ class ClassificationCustom(nn.Module):
     def forward(self, x):
         x = self.features(x)
         x = self.avgpool(x)
+        x = x.squeeze()
         logits = self.fc(x)
 
         return logits
