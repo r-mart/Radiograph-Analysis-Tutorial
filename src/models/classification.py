@@ -1,5 +1,6 @@
 import torchvision
 import torch.nn as nn
+from torch import Tensor
 
 
 class ClassificationBaseline(nn.Module):
@@ -21,38 +22,69 @@ class ClassificationBaseline(nn.Module):
 
 
 class ClassificationCustom(nn.Module):
-    def __init__(self, cfg):
+    def __init__(self, cfg) -> None:
         super().__init__()
         self.flatten = nn.Flatten()
         self.features = nn.Sequential(
-            nn.Conv2d(1, 16, 5, stride=2, padding='valid'),
-            nn.ReLU(),
-            nn.Conv2d(16, 32, 3, padding='valid'),
-            nn.ReLU(),
-            nn.MaxPool2d(2, 2),
-            nn.Conv2d(32, 32, 3, padding='valid'),
-            nn.ReLU(),
-            nn.MaxPool2d(2, 2),
-            nn.Conv2d(32, 64, 3, padding='valid'),
-            nn.ReLU(),
-            nn.MaxPool2d(2, 2),
-            nn.Conv2d(64, 64, 3, padding='valid'),
-            nn.ReLU(),
-            nn.MaxPool2d(2, 2),
-            nn.Conv2d(64, 128, 3, padding='valid'),
-            nn.ReLU()
+            DefaultBlock(1, 16, kernel_size=7, stride=2, padding=1),
+            DownBlock(),
+            DefaultBlock(16, 32),
+            DownBlock(),
+            DefaultBlock(32, 64),
+            DownBlock(),
+            DefaultBlock(64, 128)
         )
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Sequential(
-            nn.Linear(128, 10),
-            nn.ReLU(),
-            nn.Linear(10, cfg.num_classes)
-        )
+        self.fc = nn.Linear(128, cfg.num_classes)
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         x = self.features(x)
         x = self.avgpool(x)
         x = x.squeeze()
         logits = self.fc(x)
 
         return logits
+
+
+class DefaultBlock(nn.Module):
+    """ Implements a default block of a network """
+
+    def __init__(
+        self,
+        inplanes: int,
+        planes: int,
+        kernel_size: int = 3,
+        stride: int = 1,
+        padding: int = 1,
+    ) -> None:
+        super(DefaultBlock, self).__init__()
+        self.conv1 = nn.Conv2d(
+            inplanes, planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x: Tensor) -> Tensor:
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        return out
+
+
+class DownBlock(nn.Module):
+    """ Implements the logic for a block downsampling the feature resolution """
+
+    def __init__(
+        self,
+        kernel_size: int = 2,
+        stride: int = 2,
+        padding: int = 0,
+    ) -> None:
+        super(DownBlock, self).__init__()
+        self.pool = nn.MaxPool2d(
+            kernel_size=kernel_size, stride=stride, padding=padding)
+
+    def forward(self, x: Tensor) -> Tensor:
+        out = self.pool(x)
+
+        return out

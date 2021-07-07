@@ -19,6 +19,8 @@ class ClassificationDataset(Dataset):
         image_id = sample["id"]
         img = cv2.imread(str(img_path), 0)
         label = sample["study_label"]
+        # turn into binary classification
+        label = int(label > 0)
 
         if self.transforms:
             trans = self.transforms(image=img)
