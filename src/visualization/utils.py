@@ -1,16 +1,4 @@
-
-def boxes_xyxy_abs_to_rel(bboxes, img_shape):
-    """ Converts boxes from absolute to relative coordinates 
-
-    bboxes: array of boxes in XYXY absolute coordinates
-    img_shape: tuple (height, width)
-    """
-
-    h, w = img_shape
-    bboxes[:, ::2] = bboxes[:, ::2] / w
-    bboxes[:, 1::2] = bboxes[:, 1::2] / h
-
-    return bboxes
+import numpy as np
 
 
 def xyxy_to_xywh(a):
@@ -33,3 +21,14 @@ def xywh_to_xyxy(a):
     """
 
     return [a[0], a[1], a[0]+a[2]-1, a[1]+a[3]-1]
+
+
+def cxcywh_to_xyxy(boxes):
+    """
+    Convert bounding boxes from center-size coordinates (c_x, c_y, w, h) to boundary coordinates (x_min, y_min, x_max, y_max).
+
+    :param cxcy: bounding boxes in center-size coordinates, a tensor of size (n_boxes, 4)
+    :return: bounding boxes in boundary coordinates, a tensor of size (n_boxes, 4)
+    """
+    return np.concatenate([boxes[:, :2] - (boxes[:, 2:] / 2),  # x_min, y_min
+                           boxes[:, :2] + (boxes[:, 2:] / 2)], axis=1)  # x_max, y_max

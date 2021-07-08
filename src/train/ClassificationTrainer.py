@@ -5,7 +5,7 @@ from tensorboardX import SummaryWriter
 import torch
 import torch.nn as nn
 
-from .utils import AverageMeter, AccuracyMeter
+from .utils import AverageMeter, AccuracyMeter\
 
 
 class ClassificationTrainer():
