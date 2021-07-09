@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 
 from .losses import MultiBoxLoss
+from .metrics import calculate_mAP
 from .utils import AverageMeter, clip_gradient, boxes_xyxy_abs_to_rel
 
 
@@ -20,7 +21,7 @@ class DetectionTrainer():
 
         self.log_path = self.log_base / 'log.txt'
         self.best_val_loss = 10**5
-        self.best_val_acc = 0.0
+        self.best_val_score = 0.0
 
         self.model = model
         self.device = cfg.device
@@ -50,23 +51,19 @@ class DetectionTrainer():
             self.save(self.log_base / 'last-checkpoint.pt')
 
             t = time.time()
-            # TODO update with AP50
-            #val_loss, val_acc = self.validate_epoch(validation_loader)
-            val_loss = self.validate_epoch(validation_loader)
+            val_loss, AP50 = self.validate_epoch(validation_loader)
 
-            # self.log(
-            #     f'[RESULT]: Val. Epoch: {self.epoch}, val_loss: {val_loss:.5f}, val_accuracy: {val_acc:.5f}, time: {(time.time() - t):.5f}')
             self.log(
-                f'[RESULT]: Val. Epoch: {self.epoch}, val_loss: {val_loss:.5f}, time: {(time.time() - t):.5f}')
+                f'[RESULT]: Val. Epoch: {self.epoch}, val_loss: {val_loss:.5f}, val_score: {AP50:.5f}, time: {(time.time() - t):.5f}')
 
             writer.add_scalar('train/learning_rate', lr, e)
             writer.add_scalar('train/loss', train_loss, e)
             writer.add_scalar('val/loss', val_loss, e)
-            #writer.add_scalar('val/accuracy', val_acc, e)
+            writer.add_scalar('val/score', AP50, e)
 
             if val_loss < self.best_val_loss:
                 self.best_val_loss = val_loss
-                #self.best_val_acc = val_acc
+                self.best_val_score = AP50
                 self.model.eval()
                 self.save(self.log_base /
                           f'best-checkpoint-{str(self.epoch).zfill(3)}epoch.pt')
@@ -94,9 +91,7 @@ class DetectionTrainer():
 
             self.optimizer.zero_grad()
 
-            preds = self.model(images)
-            pred_locs = preds[:, :, :4]
-            pred_scores = preds[:, :, 4:]
+            pred_locs, pred_scores = self.model(images)
 
             loss = self.criterion(pred_locs, pred_scores, boxes, labels)
             loss.backward()
@@ -114,7 +109,13 @@ class DetectionTrainer():
         self.model.eval()
 
         epoch_loss = AverageMeter()
-        # score = AccuracyMeter() # TODO compute AP50 score
+
+        det_boxes = list()
+        det_labels = list()
+        det_scores = list()
+        true_boxes = list()
+        true_labels = list()
+
         for images, targets, image_ids in val_loader:
 
             with torch.no_grad():
@@ -125,20 +126,29 @@ class DetectionTrainer():
                     self.device), img.shape[1:]) for t, img in zip(targets, images)]
                 labels = [t['labels'].to(self.device) for t in targets]
 
-                preds = self.model(images)
-                pred_locs = preds[:, :, :4]
-                pred_scores = preds[:, :, 4:]
+                pred_locs, pred_scores = self.model(images)
 
                 loss = self.criterion(pred_locs, pred_scores, boxes, labels)
 
                 epoch_loss.update(loss.item())
 
                 # TODO replace with AP50 score calculation
-                # _, preds = torch.max(logits, 1)
-                # n_correct = (preds == targets).sum().item()
-                # score.update(n_correct, self.cfg.batch_size)
+                det_boxes_batch, det_labels_batch, det_scores_batch = self.model.detect_objects(pred_locs, pred_scores,
+                                                                                                min_score=0.01,
+                                                                                                max_overlap=0.45,
+                                                                                                top_k=200)
 
-        return epoch_loss.avg  # , score.acc
+                det_boxes.extend(det_boxes_batch)
+                det_labels.extend(det_labels_batch)
+                det_scores.extend(det_scores_batch)
+                true_boxes.extend(boxes)
+                true_labels.extend(labels)
+
+        # mean average precision of IOU=50% (called AP50 in COCO, mAP in Pascal VOC)
+        _, AP50 = calculate_mAP(det_boxes, det_labels,
+                                det_scores, true_boxes, true_labels, self.cfg)
+
+        return epoch_loss.avg, AP50
 
     def save(self, path):
         self.model.eval()
@@ -147,7 +157,7 @@ class DetectionTrainer():
             'optimizer_state_dict': self.optimizer.state_dict(),
             'scheduler_state_dict': self.scheduler.state_dict(),
             'best_val_loss': self.best_val_loss,
-            'best_val_acc': self.best_val_acc,
+            'best_val_acc': self.best_val_score,
             'epoch': self.epoch,
         }, path)
 
@@ -157,7 +167,7 @@ class DetectionTrainer():
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
         self.best_val_loss = checkpoint['best_val_loss']
-        self.best_val_acc = checkpoint['best_val_acc']
+        self.best_val_score = checkpoint['best_val_acc']
         self.epoch = checkpoint['epoch'] + 1
 
     def log(self, message):

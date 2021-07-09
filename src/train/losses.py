@@ -89,12 +89,17 @@ class MultiBoxLoss(nn.Module):
 
         # Identify anchors that are positive (object/non-background)
         positive_anchors = true_classes != 0  # (batch_size, n_anchors)
+        n_positives = positive_anchors.sum(dim=1)  # (N)
 
         # LOCALIZATION LOSS
 
-        # Localization loss is computed only over positive (non-background) anchors
-        loc_loss = self.smooth_l1(
-            predicted_locs[positive_anchors], true_locs[positive_anchors])  # (), scalar
+        if n_positives.sum() > 0:
+            # Localization loss is computed only over positive (non-background) anchors
+            loc_loss = self.smooth_l1(
+                predicted_locs[positive_anchors], true_locs[positive_anchors])  # (), scalar
+        else:
+            # The original SSD paper did not cover the case of no positive cases. Hence, in this case we deviate from the paper
+            loc_loss = 0.0
 
         # Note: indexing with a torch.uint8 (byte) tensor flattens the tensor when indexing is across multiple dimensions (N & n_anchors)
         # So, if predicted_locs has the shape (N, n_anchors, 4), predicted_locs[positive_anchors] will have (total positives, 4)
@@ -106,9 +111,13 @@ class MultiBoxLoss(nn.Module):
         # we will take the hardest (neg_pos_ratio * n_positives) negative anchors, i.e where there is maximum loss
         # This is called Hard Negative Mining - it concentrates on hardest negatives in each image, and also minimizes pos/neg imbalance
 
-        # Number of positive and hard-negative anchors per image
-        n_positives = positive_anchors.sum(dim=1)  # (N)
-        n_hard_negatives = self.neg_pos_ratio * n_positives  # (N)
+        # Number of hard-negative anchors per image
+        if n_positives.sum() > 0:
+            n_hard_negatives = self.neg_pos_ratio * n_positives  # (N)
+        else:
+            # randomly pick box number per image
+            n_hard_negatives = self.neg_pos_ratio * \
+                torch.randint(1, 3, size=(batch_size,)).to(self.cfg.device)
 
         # First, find the loss for all anchors
         conf_loss_all = self.cross_entropy(
@@ -133,10 +142,14 @@ class MultiBoxLoss(nn.Module):
         # (sum(n_hard_negatives))
         conf_loss_hard_neg = conf_loss_neg[hard_negatives]
 
-        # As in the paper, averaged over positive anchors only, although computed over both positive and hard-negative anchors
-        conf_loss = (conf_loss_hard_neg.sum() + conf_loss_pos.sum()
-                     ) / n_positives.sum().float()  # (), scalar
+        if n_positives.sum() > 0:
+            # As in the paper, averaged over positive anchors only, although computed over both positive and hard-negative anchors
+            conf_loss = (conf_loss_hard_neg.sum() + conf_loss_pos.sum()
+                         ) / n_positives.sum().float()  # (), scalar
+        else:
+            # doing the same for no positive boxes would yield a division by 0. So pick hard negative number instead
+            conf_loss = (conf_loss_hard_neg.sum() + conf_loss_pos.sum()
+                         ) / n_hard_negatives.sum().float()  # (), scalar
 
         # TOTAL LOSS
-
         return conf_loss + self.alpha * loc_loss

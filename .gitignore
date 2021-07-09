@@ -93,3 +93,6 @@ models/**/*.pth
 
 # Notebook logs
 notebooks/*logs/
+
+# Training Script logs
+logs/*
